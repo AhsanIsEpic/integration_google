@@ -418,6 +418,7 @@ export default {
 			nbImportedPhotos: 0,
 			queuedSessions: 0,
 			photoImportLoop: null,
+			oauthBroadcastChannel: null,
 			// drive
 			driveSize: 0,
 			gettingDriveInfo: false,
@@ -479,6 +480,10 @@ export default {
 		this.photoImportLoop = null
 		clearInterval(this.driveImportLoop)
 		this.driveImportLoop = null
+		if (this.oauthBroadcastChannel) {
+			this.oauthBroadcastChannel.close()
+			this.oauthBroadcastChannel = null
+		}
 	},
 
 	mounted() {
@@ -574,17 +579,32 @@ export default {
 					const ssoWindow = window.open(
 						requestUrl,
 						t('integration_google', 'Sign in with Google'),
-						'toolbar=no, menubar=no, width=600, height=700',
+						'toolbar=no, menubar=no, width=600, height=700,noopener,noreferrer',
 					)
-					ssoWindow.focus()
-					window.addEventListener('message', (event) => {
+					if (ssoWindow) {
+						ssoWindow.focus()
+					}
+					const handleOAuthMessage = (event) => {
 						if (!event.data?.username) {
 							return
 						}
 						console.debug('Child window message received', event)
 						this.state.user_name = event.data.username
 						this.loadData()
-					})
+					}
+					// Close any previous channel before creating a new one
+					if (this.oauthBroadcastChannel) {
+						this.oauthBroadcastChannel.close()
+					}
+					this.oauthBroadcastChannel = new BroadcastChannel('integration_google_oauth')
+					this.oauthBroadcastChannel.onmessage = (event) => {
+						if (!event.data?.username) {
+							return
+						}
+						this.oauthBroadcastChannel.close()
+						this.oauthBroadcastChannel = null
+						handleOAuthMessage(event)
+					}
 				} else {
 					window.location.replace(requestUrl)
 				}
@@ -782,7 +802,7 @@ export default {
 				const pickerWindow = window.open(
 					this.pickerUri,
 					t('integration_google', 'Google Photos Picker'),
-					'toolbar=no, menubar=no, width=900, height=700',
+					'toolbar=no, menubar=no, width=900, height=700,noopener,noreferrer',
 				)
 				if (pickerWindow) {
 					pickerWindow.focus()
@@ -799,7 +819,7 @@ export default {
 					const pickerWindow = window.open(
 						response.data.pickerUri,
 						t('integration_google', 'Google Photos Picker'),
-						'toolbar=no, menubar=no, width=900, height=700',
+						'toolbar=no, menubar=no, width=900, height=700,noopener,noreferrer',
 					)
 					if (pickerWindow) {
 						pickerWindow.focus()
