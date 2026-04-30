@@ -419,6 +419,7 @@ export default {
 			queuedSessions: 0,
 			photoImportLoop: null,
 			oauthBroadcastChannel: null,
+			oauthPopupMonitor: null,
 			// drive
 			driveSize: 0,
 			gettingDriveInfo: false,
@@ -478,6 +479,8 @@ export default {
 		this.pickerPollTimer = null
 		clearInterval(this.photoImportLoop)
 		this.photoImportLoop = null
+		clearInterval(this.oauthPopupMonitor)
+		this.oauthPopupMonitor = null
 		clearInterval(this.driveImportLoop)
 		this.driveImportLoop = null
 		if (this.oauthBroadcastChannel) {
@@ -576,21 +579,20 @@ export default {
 			const url = generateUrl('/apps/integration_google/config')
 			axios.put(url, req).then((response) => {
 				if (this.state.use_popup) {
-					const ssoWindow = window.open(
-						requestUrl,
-						t('integration_google', 'Sign in with Google'),
-						'toolbar=no, menubar=no, width=600, height=700,noopener,noreferrer',
-					)
-					if (ssoWindow) {
-						ssoWindow.focus()
+					let popupHandled = false
+					const refreshAfterOAuth = () => {
+						window.location.reload()
 					}
 					const handleOAuthMessage = (event) => {
 						if (!event.data?.username) {
 							return
 						}
+						popupHandled = true
+						clearInterval(this.oauthPopupMonitor)
+						this.oauthPopupMonitor = null
 						console.debug('Child window message received', event)
 						this.state.user_name = event.data.username
-						this.loadData()
+						refreshAfterOAuth()
 					}
 					// Close any previous channel before creating a new one
 					if (this.oauthBroadcastChannel) {
@@ -605,6 +607,28 @@ export default {
 						this.oauthBroadcastChannel = null
 						handleOAuthMessage(event)
 					}
+					const ssoWindow = window.open(
+						requestUrl,
+						t('integration_google', 'Sign in with Google'),
+						'toolbar=no, menubar=no, width=600, height=700,noopener,noreferrer',
+					)
+					if (ssoWindow) {
+						ssoWindow.focus()
+					}
+					clearInterval(this.oauthPopupMonitor)
+					this.oauthPopupMonitor = setInterval(() => {
+						if (!ssoWindow || ssoWindow.closed) {
+							clearInterval(this.oauthPopupMonitor)
+							this.oauthPopupMonitor = null
+							if (!popupHandled) {
+								if (this.oauthBroadcastChannel) {
+									this.oauthBroadcastChannel.close()
+									this.oauthBroadcastChannel = null
+								}
+								refreshAfterOAuth()
+							}
+						}
+					}, 500)
 				} else {
 					window.location.replace(requestUrl)
 				}
